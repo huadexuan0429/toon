@@ -271,7 +271,13 @@ const extractVideoStatus = (data: any) => {
 };
 
 const extractVideoUrl = (data: any) => {
-  return pickFirstPath(data, ["video_url", "data.video_url", "output.0.video_url", "output_video_url"]);
+  return pickFirstPath(data, [
+    "remixed_from_video_id",
+    "video_url",
+    "data.video_url",
+    "output.0.video_url",
+    "output_video_url",
+  ]);
 };
 
 const extractErrorMessage = (data: any) => {
@@ -319,26 +325,25 @@ const imageRequest = async (config: ImageConfig, model: ImageModel): Promise<str
 const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<string> => {
   const { actualModelName, profile } = parseVideoProfile(model.modelName);
   const imageUrls = await ensurePublicUrls(config.referenceList);
+  const size = getVideoSize(config.aspectRatio, config.resolution || "720p");
+  const [widthStr, heightStr] = size.split("x");
+  const width = Number(widthStr);
+  const height = Number(heightStr);
+  const numFrames = Math.max(25, Math.min(441, Math.floor(config.duration || 5) * 24 + 1));
 
   const body: Record<string, any> = {
     model: actualModelName,
-    input: [
-      {
-        role: "user",
-        content: [{ type: "input_text", text: config.prompt || "Generate a video" }],
-      },
-    ],
-    size: getVideoSize(config.aspectRatio, config.resolution || "720p"),
+    prompt: config.prompt || "Generate a video",
+    width,
+    height,
+    num_frames: numFrames,
     frame_rate: 24,
-    num_frames: Math.max(25, Math.min(441, Math.floor(config.duration || 5) * 24 + 1)),
   };
 
   if (profile === "image") {
     if (imageUrls.length < 1) throw new Error("Agnes 图生视频模式至少需要 1 张公网图片 URL");
-    body.input.push({
-      role: "user",
-      content: [{ type: "input_image", image_url: imageUrls[0] }],
-    });
+    body.image = imageUrls[0];
+    body.mode = "ti2vid";
   }
 
   if (profile === "multi") {
@@ -352,7 +357,7 @@ const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<str
   }
 
   logger(`[Agnes Video] 开始提交任务: ${actualModelName}, profile=${profile}`);
-  const submitResp = await axios.post(`${normalizeBaseUrl()}/responses`, body, { headers: getHeaders() });
+  const submitResp = await axios.post(`${normalizeBaseUrl()}/videos`, body, { headers: getHeaders() });
   const videoUrl = extractVideoUrl(submitResp.data);
   if (videoUrl) return await urlToBase64(videoUrl);
 
