@@ -108,6 +108,7 @@ declare const zipImageResolution: (base64: string, w: number, h: number) => Prom
 declare const mergeImages: (base64Arr: string[], maxSize?: string) => Promise<string>;
 declare const urlToBase64: (url: string) => Promise<string>;
 declare const pollTask: (fn: () => Promise<PollResult>, interval?: number, timeout?: number) => Promise<PollResult>;
+declare const base64ToFileUrl: (input: string, folder?: string) => Promise<string>;
 declare const createOpenAI: any;
 declare const createDeepSeek: any;
 declare const createZhipu: any;
@@ -137,7 +138,7 @@ const vendor: VendorConfig = {
   author: "Toonflow",
   name: "Agnes AI",
   description:
-    "## Agnes 官方接口\n\n- 文本：OpenAI 兼容 Chat Completions\n- 图片：`/images/generations`\n- 视频：`/responses` + `/agnesapi` 轮询\n\n注意：Agnes Video V2.0 官方文档要求图生/多图视频传入 **公网可访问图片 URL**。因此当前视频接口会校验引用是否为 `http(s)` 地址；如果你传的是纯 base64，需要先放到公网可访问地址后再使用。",
+    "## Agnes 官方接口\n\n- 文本：OpenAI 兼容 Chat Completions\n- 图片：`/images/generations`\n- 视频：`/responses` + `/agnesapi` 轮询\n\n视频模式下，Toonflow 会自动把引用图写入 OSS/static 目录，并生成可供 Agnes 访问的 URL。部署到服务器时请正确设置 `OSSURL` 为公网地址。",
   inputs: [
     { key: "apiKey", label: "API密钥", type: "password", required: true, placeholder: "Agnes API Key" },
     { key: "baseUrl", label: "请求地址", type: "url", required: true, placeholder: "示例：https://apihub.agnes-ai.com/v1" },
@@ -219,14 +220,13 @@ const getHeaders = () => ({
   "Content-Type": "application/json",
 });
 
-const ensurePublicUrls = (referenceList: ReferenceList[] | undefined) => {
+const ensurePublicUrls = async (referenceList: ReferenceList[] | undefined) => {
   const imageRefs = (referenceList || []).filter((item) => item.type === "image");
-  const urls = imageRefs.map((item) => item.base64).filter(Boolean);
-  for (const url of urls) {
-    if (!/^https?:\/\//i.test(url)) {
-      throw new Error("Agnes 视频接口要求 image 引用为公网可访问的 http(s) URL，当前检测到的是 base64 或本地数据");
-    }
-  }
+  const urls = await Promise.all(
+    imageRefs.map(async (item, index) => {
+      return await base64ToFileUrl(item.base64, `vendor/agnes/image-${index + 1}`);
+    }),
+  );
   return urls;
 };
 
@@ -318,7 +318,7 @@ const imageRequest = async (config: ImageConfig, model: ImageModel): Promise<str
 
 const videoRequest = async (config: VideoConfig, model: VideoModel): Promise<string> => {
   const { actualModelName, profile } = parseVideoProfile(model.modelName);
-  const imageUrls = ensurePublicUrls(config.referenceList);
+  const imageUrls = await ensurePublicUrls(config.referenceList);
 
   const body: Record<string, any> = {
     model: actualModelName,

@@ -14,6 +14,46 @@ import FormData from "form-data";
 import jsonwebtoken from "jsonwebtoken";
 import u from "@/utils";
 import crypto from "node:crypto";
+
+function getFileExtensionFromBase64(input: string): string {
+  const match = input.match(/^data:([^;]+);base64,/i);
+  if (!match) return "bin";
+  const mime = match[1].toLowerCase();
+  const extMap: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/bmp": "bmp",
+    "image/svg+xml": "svg",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/ogg": "ogg",
+    "audio/aac": "aac",
+  };
+  return extMap[mime] || "bin";
+}
+
+async function base64ToFileUrl(input: string, folder = "vendor"): Promise<string> {
+  if (!input) throw new Error("缺少文件内容");
+  if (/^https?:\/\//i.test(input)) return input;
+  if (!/^data:[^;]+;base64,/i.test(input)) throw new Error("仅支持 http(s) URL 或 Data URL base64");
+
+  const ext = getFileExtensionFromBase64(input);
+  const hash = crypto.createHash("sha256").update(input).digest("hex");
+  const relPath = `${folder}/${hash}.${ext}`;
+
+  if (!(await u.oss.fileExists(relPath))) {
+    await u.oss.writeFile(relPath, input);
+  }
+
+  return await u.oss.getFileUrl(relPath);
+}
+
 export default function runCode(code: string, vendor?: Record<string, any>) {
   code = code.replace(/export\s*\{\s*\};?/g, ""); // 去掉 export {} 以免沙盒环境报错
   // 创建一个沙盒
@@ -33,6 +73,7 @@ export default function runCode(code: string, vendor?: Record<string, any>) {
     urlToBase64,
     mergeImages,
     pollTask,
+    base64ToFileUrl,
     fetch: fetch,
     exports,
     axios,
