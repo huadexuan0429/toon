@@ -6,6 +6,6 @@
   "env": {
     "NODE_ENV": "prod",
     "PORT": 10588,
-    "OSSURL": "http://127.0.0.1:10588/"
+    "OSSURL": "https://superhomelander.com/"
   }
 }
